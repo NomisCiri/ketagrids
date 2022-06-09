@@ -79,8 +79,14 @@ var condition,
 
 function assignScenario() {
   //Extract participant id and session
-	session = parseInt(document.getElementById('sessionSelect').value);
+  session = parseInt(document.getElementById('sessionSelect').value);
   initialEnvs = smoothKernel
+  // get correct environment indices
+  if (session==1) {
+  	envOrder=env_shuffled_1[participantId].envOrder
+  } else if (session ==2){
+  	envOrder=env_shuffled_2[participantId].envOrder
+  }
   condition = 0; //Smooth env
   clicks = horizon; //set initial number of clicks to horizon
   for (i = 0; i <= trials; i++) {
@@ -137,10 +143,10 @@ function instructioncheck() {
 
 function giveParticipantID(){
   participantId = parseInt(document.getElementById('uid-input').value);
-  if (isNaN(participantId) == false){
+  if ((isNaN(participantId) == false) & (participantId < 101)){
     clickStart('rt-start','page1')
   }else{
-    alert('Bitte geben Sie eine numerische Probandennummer ein');
+    alert('Bitte geben Sie eine numerische Probandennummer zwischen 1 und 100 ein');
   }
 }
 
