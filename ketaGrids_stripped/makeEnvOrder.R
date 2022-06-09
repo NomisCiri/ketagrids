@@ -2,6 +2,9 @@
 # and saves it as a json. By these means we make sure that the first and second session
 # do not use the same environments.
 library(jsonlite)
+library(dplyr)
+library(magrittr)
+#specs
 n_envs=40
 n_subs=100
 env_idx=c(0:(n_envs-1))
