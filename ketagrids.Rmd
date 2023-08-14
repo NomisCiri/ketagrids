@@ -1,0 +1,148 @@
+---
+title: "Ketagrids"
+author: "Simon"
+date: '2023-08-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(tidyverse,viridis,brms)
+
+# helper function that requires to run brms model only once
+modelpath = 'brmsModels/'
+
+run_model <- function(expr, modelName, path=modelpath, reuse = TRUE) {
+  path <- paste0(path,'/', modelName, ".brm")
+  if (reuse) {
+    fit <- suppressWarnings(try(readRDS(path), silent = TRUE))
+  }
+  if (is(fit, "try-error")) {
+    fit <- eval(expr)
+    saveRDS(fit, file = path)
+  }
+  fit
+}
+```
+
+## Read data
+
+Here i load the individual files, and parse the data into a long format.
+
+```{r}
+#script for reading individual jsons
+source("dataProcessing.R")
+data_file_path<-"data/gridSearch01_06_Vienna/"
+
+dat<-list.files(path = data_file_path)%>%
+  purrr::map_dfr(.,~{dataImport_Adolescent(dataFile =paste0(data_file_path,.))})%>%
+  mutate(z=z/50,#normalize rewards and previous rewards
+         previous_reward=previous_reward/50)
+```
+
+# Unblinding.
+For unblinding we need to replace session with whether people were on ketamine or not.
+
+# Average reward across sections.
+
+Now, i can already look at the data. First thing of interest is whether participants change their behavior across sessions.
+
+It looks like there is a training effect such as that participants in session 2 were better overall.
+
+```{r pressure, echo=FALSE}
+#replace session with treatment
+dReward = ddply(subset(dat, trial!=0), ~id+session, plyr::summarize, meanReward=mean(z))
+
+pReward = ggplot(dReward, aes(x=as.factor(session), y=meanReward)) +
+  geom_boxplot(color='black', outlier.shape = NA, width=.5) +
+  geom_point(position = position_dodge2(0.05))+
+  geom_line(aes(group=id),alpha=0.1,position = position_dodge2(0.05))+
+  xlab('Session') +
+  ylab('Normalized Mean Reward') +
+  ggtitle('Performance') +
+  theme_classic()
+pReward
+```
+
+# Learning curves.
+
+Learning seems to be more prolonged in session 2, so that participants get greater rewards in the later half of the experiment. 
+
+```{r}
+# Learning curves per age group - mean reward
+dLearningCurves <- ddply(dat, ~id+trial+session, plyr::summarize, meanReward = mean(z))
+
+pLearningCurves <- ggplot(dLearningCurves, aes(x=trial, y=meanReward, color=as.factor(session), group=session,fill=as.factor(session)))+
+  stat_summary(fun.y = mean, geom='line', size=.5)+
+  stat_summary(fun.data = mean_cl_boot, geom='ribbon', alpha=0.3, color=NA)+
+  geom_hline(yintercept=0.5, linetype='dashed', color='red') + # random choice model
+  #coord_cartesian(ylim = c(.45, 1.)) +
+  xlab('Trial')+
+  ylab('Normalized Reward ± 95% CI')+
+  labs(color='Session') +
+  labs(fill='Session') +
+  ggtitle('Mean Reward') +
+  theme_classic() +
+  theme(strip.background=element_blank())
+
+pLearningCurves
+```
+# Distance between search decisions
+
+```{r}
+DistancePrevReward = run_model(brm(distance ~ previous_reward * session + (previous_reward + session | id),
+                                   data = dat, cores = 4, iter = 4000, warmup = 1000,
+                                   control = list(adapt_delta = 0.99)), modelName = 'DistancePrevReward_sessions')
+```
+
+```{r}
+
+# generate predictions
+prevReward = seq(0,50) / 50 # normalized reward
+newdat = expand.grid(previous_reward=prevReward, session=c(1,2))
+# predict distance based on previous reward
+preds = fitted(DistancePrevReward, re_formula=NA, newdata=newdat, probs=c(.025, .975))
+predsDF = data.frame(previous_reward=rep(prevReward, 7),
+                     agegroup=rep(levels(d$agegroup), each=length(prevReward)),
+                     distance=preds[,1],
+                     lower=preds[,3],
+                     upper=preds[,4])
+
+# average distance
+grid = expand.grid(x1=0:7, x2=0:7, y1=0:7, y2=0:7)
+grid$distance = NA
+
+for(i in 1:dim(grid)[1]){
+  grid$distance[i] <- dist(rbind(c(grid$x1[i], grid$x2[i]), c(grid$y1[i], grid$y2[i])), method = "manhattan")
+}
+
+meanDist = mean(grid$distance)
+
+# plot predictions
+pDistRewardRegression <- ggplot()+
+  stat_summary(d, mapping=aes(x=previous_reward, y=distance, color=agegroup, fill=agegroup), fun.y=mean, geom='point', alpha=0.7, size=.5)+
+  geom_line(predsDF, mapping=aes(x=previous_reward, y=distance, color=agegroup), size=.3) +
+  geom_ribbon(predsDF, mapping=aes(x=previous_reward, y=distance, ymin=lower, ymax=upper, fill=agegroup), alpha=.3) +
+  geom_hline(yintercept=meanDist, linetype='dashed', color='red') + # mean distance
+  xlab('Normalized Previous Reward')+
+  ylab('Distance to Next Option')+
+  scale_color_viridis(discrete=TRUE, name='Age Group', direction=1) +
+  scale_fill_viridis(discrete=TRUE, name='Age Group', direction=1) +
+  ggtitle('Search Distance ~ Reward') +
+  theme_classic() +
+  theme(strip.background=element_blank(), legend.position='none')+
+  facet_wrap(. ~ round)
+
+pDistRewardRegression
+# ggsave(filename = "plots/distReward.png", plot=pDistRewardRegression, height=2.5, width=4, units = "in")
+d$distance
+
+# plot model coefficients
+set_theme(geom.label.color = 'black', base = theme_classic())
+
+pCoeffs = sjPlot::plot_model(DistancePrevReward) +
+  font_size(title=2) +
+  theme_sjplot() 
+
+pCoeffs
+
+```
