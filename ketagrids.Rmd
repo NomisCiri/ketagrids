@@ -9,7 +9,7 @@ output: html_document
 pacman::p_load(tidyverse,viridis,brms)
 
 # helper function that requires to run brms model only once
-modelpath = 'brmsModels/'
+modelpath = './brmsModels/'
 
 run_model <- function(expr, modelName, path=modelpath, reuse = TRUE) {
   path <- paste0(path,'/', modelName, ".brm")
